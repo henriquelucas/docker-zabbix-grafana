@@ -1,95 +1,95 @@
-version: '2'
+version: '3.1'
+
+networks:
+  network-zabbix:
+    driver: bridge
 
 services:
-  server:
-    image: zabbix/zabbix-server-mysql:latest
-    container_name: zabbix-server
-    depends_on:
-     - mysql
-    environment:
-      TZ: Asia/Shanghai
-      DB_SERVER_HOST: "mysql"
-      MYSQL_DATABASE: "zabbix"
-      MYSQL_USER: "zabbix"
-      MYSQL_PASSWORD: "Red4815@"
-      MYSQL_ROOT_PASSWORD: "Red4815@"
-    ports:
-     - "10051:10051"
-    volumes:
-     - /etc/localtime:/etc/localtime:ro
-    links:
-     - mysql:zabbix-mysql
-    user: root
-    networks:
-      zabbixbr:
-        ipv4_address: 192.168.1.245
-    restart: always
-  
-  web:
-    image: zabbix/zabbix-web-nginx-mysql:latest
-    container_name: zabbix-web
-    depends_on:
-     - mysql
-     - server
-    environment:
-      TZ: Asia/Shanghai
-      DB_SERVER_HOST: "mysql"
-      ZBX_SERVER_HOST: "server"
-      MYSQL_DATABASE: "zabbix"
-      MYSQL_USER: "zabbix"
-      MYSQL_PASSWORD: "Red4815@"
-      MYSQL_ROOT_PASSWORD: "Red4815@"
-    volumes:
-     - ./zabbix/graphfont.ttf:/usr/share/zabbix/fonts/graphfont.ttf
-     - /etc/localtime:/etc/localtime:ro
-    
-    links:
-      - mysql:zabbix-mysql
-      - server:zabbix-server
-    ports:
-     - "80:80"
-    user: root
-    networks:
-      zabbixbr:
-        ipv4_address: 192.168.1.244
-    restart: always 
-
   mysql:
+    container_name: mysql
     image: mysql:5.7
-    container_name: zabbix-mysql
-    command: --character-set-server=utf8 --collation-server=utf8_general_ci
-    environment:
-      TZ: Asia/Shanghai
-      MYSQL_DATABASE: "zabbix"
-      MYSQL_USER: "zabbix"
-      MYSQL_PASSWORD: "Red4815@"
-      MYSQL_ROOT_PASSWORD: "Red4815@"     
     networks:
-      zabbixbr:
-        ipv4_address: 192.168.1.243
-    volumes:
-     - /home/data/zabbix/database/mysql:/var/lib/mysql
-     - /etc/localtime:/etc/localtime:ro
-    restart: always
-
-  grafana:
-    image: grafana/grafana:latest
-    container_name: zabbix-grafana
-    environment:
-     TZ: Asia/Shanghai
+      - network-zabbix
     ports:
-      - 3000:3000
+      - '3306:3306'
     volumes:
-      - /home/data/grafana:/var/lib/grafana
-      - ./grafana/plugins:/var/lib/grafana/plugins
+      - './zabbix/mysql:/var/lib/data'
+    environment:
+      - MYSQL_ROOT_PASSWORD=carryontech
+      - MYSQL_DATABASE=zabbix
+      - MYSQL_USER=zabbix
+      - MYSQL_PASSWORD=Red4815@
+
+  zabbix-server:
+    container_name: zabbix-server
+    image: zabbix/zabbix-server-mysql:ubuntu-5.0.1
     networks:
-      zabbixbr:
-        ipv4_address: 192.168.1.242
+      - network-zabbix
+    links:
+      - mysql
     restart: always
-networks:
-  zabbixbr:
-    driver: bridge
-    ipam:
-     config:
-       - subnet: 192.168.1.0/16
-         gateway: 192.168.1.241
+    ports:
+      - '10051:10051'
+    volumes:
+      - './zabbix/alertscripts:/usr/lib/zabbix/alertscripts'
+    environment:
+      - DB_SERVER_HOST=mysql
+      - MYSQL_DATABASE=zabbix
+      - MYSQL_USER=zabbix
+      - MYSQL_PASSWORD=Red4815@
+    depends_on:
+      - mysql
+
+  zabbix-frontend:
+    container_name: zabbix-frontend
+    image: zabbix/zabbix-web-apache-mysql:ubuntu-5.0.1
+    networks:
+      - network-zabbix
+    links:
+      - mysql
+    restart: always
+    ports:
+      - '80:8080'
+      - '443:8443'
+    environment:
+      - DB_SERVER_HOST=mysql
+      - MYSQL_DATABASE=zabbix
+      - MYSQL_USER=zabbix
+      - MYSQL_PASSWORD=Red4815@
+      - PHP_TZ=America/Sao_Paulo
+    depends_on:
+      - mysql
+   
+  grafana:
+    container_name: grafana
+    image: grafana/grafana
+    networks:
+      - network-zabbix
+    links:
+      - mysql
+      - zabbix-server
+    restart: always
+    ports:
+      - '3000:3000'
+    environment: 
+      - GF_INSTALL_PLUGINS=alexanderzobnin-zabbix-app
+    depends_on:
+      - mysql
+      - zabbix-server
+  zabbix-agent:
+    container_name: zabbix-agent
+    image: zabbix/zabbix-agent2:alpine-5.0.1
+    user: root
+    networks:
+      - network-zabbix
+    links:
+      - zabbix-server
+    restart: always
+    privileged: true
+    volumes:
+      - /var/run:/var/run
+    ports:
+      - '10050:10050'
+    environment:
+      - ZBX_HOSTNAME=Zabbix server
+      - ZBX_SERVER_HOST=192.168.1.246
